@@ -33,8 +33,8 @@ class Engine:
         self.name = f"twinnet-d{net.config['dim']}x{net.config['depth']}"
 
     @classmethod
-    def load(cls, assets: Path = ASSETS) -> "Engine":
-        ck = torch.load(assets / "model.pt", map_location="cpu", weights_only=True)
+    def load(cls, assets: Path = ASSETS, model_path: Path | None = None) -> "Engine":
+        ck = torch.load(model_path or assets / "model.pt", map_location="cpu", weights_only=True)
         net = TwinNet(**ck["config"])
         net.load_state_dict(ck["state_dict"])
         norm = Normalizer.from_dict(json.loads((assets / "norm.json").read_text()))
@@ -47,10 +47,18 @@ class Engine:
     def _bounds(self, x: np.ndarray, lo, hi) -> np.ndarray:
         return np.clip(x, lo[:, None, None], hi[:, None, None])
 
-    @torch.no_grad()
     def simulate(self, init_states: np.ndarray, doy_sincos, steps: int, perturbation=None) -> np.ndarray:
         """init_states [3,6,32,36] physical, oldest first; perturbation [6,32,36] delta added to the last day.
         Returns [steps,6,32,36] physical units."""
+        raw, prob = self.rollout_raw(init_states, doy_sincos, steps, perturbation)
+        out = np.empty_like(raw)
+        for k in range(steps):
+            out[k] = self._bounds(self._heavy_rain(raw[k].copy(), prob[k], k), OUT_LO, OUT_HI)
+        return out
+
+    @torch.no_grad()
+    def rollout_raw(self, init_states: np.ndarray, doy_sincos, steps: int, perturbation=None):
+        """The model's own rollout before post-processing: (states [steps,6,H,W] physical, P(rain>10) [steps,H,W])."""
         x = np.array(init_states, dtype="f4", copy=True).reshape(3, NC, H, W)
         if perturbation is not None:
             x[-1] = x[-1] + np.asarray(perturbation, dtype="f4").reshape(NC, H, W)
@@ -60,21 +68,21 @@ class Engine:
         x = self._bounds(x, IN_LO, IN_HI)
         hist = self.norm.fwd(torch.as_tensor(x)).unsqueeze(0)       # [1,3,6,H,W]
         doy = torch.tensor([doy_from_sincos(float(doy_sincos[0]), float(doy_sincos[1]))])
-        out = np.empty((steps, NC, H, W), "f4")
+        raw = np.empty((steps, NC, H, W), "f4")
+        prob = np.empty((steps, H, W), "f4")
         for k in range(steps):
             z, logit, doy = step(self.net, hist, doy, self.clim_z, self.static_f)
-            phys = self.norm.inv(z)[0].numpy()
-            phys = self._heavy_rain(phys, logit[0].numpy(), k)
-            out[k] = self._bounds(phys, OUT_LO, OUT_HI)
+            raw[k] = self._bounds(self.norm.inv(z)[0].numpy(), OUT_LO, OUT_HI)
+            prob[k] = torch.sigmoid(logit[0]).numpy()
             hist = torch.cat([hist[:, 1:], z.unsqueeze(1)], dim=1)   # feed back the model state, not the post-processing
-        return out
+        return raw, prob
 
-    def _heavy_rain(self, phys: np.ndarray, logit: np.ndarray, k: int) -> np.ndarray:
-        """Optional calibrated heavy-rain sharpening (assets/post.json); affects only the reported field."""
+    def _heavy_rain(self, phys: np.ndarray, p: np.ndarray, k: int) -> np.ndarray:
+        """Calibrated heavy-rain flagging (assets/post.json): where the heavy-rain head is confident, the reported
+        rain is raised to at least `floor` mm/day. Affects only the reported field, never the model's own state."""
         cfg = self.post.get("heavy_rain")
         if not cfg:
             return phys
-        p = 1.0 / (1.0 + np.exp(-logit))
         thr = cfg["p_thr"][min(k, len(cfg["p_thr"]) - 1)] if isinstance(cfg["p_thr"], list) else cfg["p_thr"]
         phys[1] = np.where(p > thr, np.maximum(phys[1], cfg.get("floor", 10.5)), phys[1])
         return phys

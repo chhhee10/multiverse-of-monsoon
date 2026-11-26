@@ -52,6 +52,8 @@ def load_chunks(pattern: str = "*.npz") -> tuple[np.ndarray, np.ndarray]:
     data, dates = np.concatenate(xs), np.concatenate(ds).astype("datetime64[D]")
     order = np.argsort(dates)
     data, dates = data[order], dates[order]
+    finite = np.isfinite(data).all(axis=(1, 2, 3))     # e.g. 1959-01-01 rain: the source has no accumulation yet
+    data, dates = data[finite], dates[finite]
     data[:, 1] = np.maximum(data[:, 1], 0.0)          # ERA5 rain has tiny negatives; the kit clamps them too
     return data, dates
 

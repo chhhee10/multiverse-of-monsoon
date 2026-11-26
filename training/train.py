@@ -65,6 +65,7 @@ class Trainer:
         arch = load_all()
         if a.first_year:
             arch = arch.years(a.first_year, 2100)
+        assert np.isfinite(arch.data).all(), "non-finite values in the training data"
         self.dates = arch.dates
         self.x_phys = arch.data                                           # numpy, for evaluation
         years = arch.dates.astype("datetime64[Y]").astype(int) + 1970
@@ -79,9 +80,9 @@ class Trainer:
               f"val_days={self.val_ok.sum()} device={self.dev}", flush=True)
 
         with torch.no_grad():
-            self.xz = self.norm.fwd(torch.as_tensor(arch.data)).to(self.dev)          # [N,6,H,W]
+            self.xz = self.norm.fwd(torch.as_tensor(arch.data).to(self.dev))          # [N,6,H,W]
             self.heavy = torch.as_tensor(arch.data[:, 1] > 10.0).to(self.dev)         # [N,H,W]
-            self.clim_z = self.norm.fwd(torch.as_tensor(self.clim_phys)).to(self.dev)
+            self.clim_z = self.norm.fwd(torch.as_tensor(self.clim_phys).to(self.dev))
         self.doy = torch.as_tensor(day_of_year(arch.dates)).to(self.dev)
         self.static_f = static_features(arch.static).to(self.dev)
         self.wlat = torch.as_tensor(lat_weights()).to(self.dev).view(1, 1, -1, 1)

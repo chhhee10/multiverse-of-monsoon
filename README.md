@@ -26,7 +26,30 @@ python serve.py --port 8000
 
 ## Train
 
-TODO
+```bash
+pip install -r requirements-train.txt
+# data: put the kit's india_climate_train.nc + stats.json in data/, then (optional) extra ERA5 years:
+modal run training/data/pull_era5_modal.py --start 1959-01-01 --end 2004-12-31
+modal run training/data/pull_era5_modal.py --start 2022-01-01 --end 2022-12-31
+modal volume get monsoon-data chunks data/
+
+python -m training.build_assets             # climatology, normalisation, static fields -> assets/
+python train.py --out runs/v1               # local GPU/CPU, or on Modal:
+modal run training/modal_train.py --name v1
+cp runs/v1/model.pt assets/model.pt
+python -m training.calibrate                # heavy-rain calibration -> assets/post.json
+```
+
+Training curriculum: one-day-ahead training, then autoregressive fine-tuning on 2-, 4- and 8-day rollouts in which
+the model is fed its own predictions (this is what keeps 10-day rollouts stable and sharp). Model selection uses the
+organisers' own scoring functions on the held-out years 2021-2022.
+
+## Evaluate and check
+
+```bash
+python -m training.evaluate --model engine --year 2022    # organisers' scoring maths on held-out event windows
+scripts/preflight.sh                                      # repo scan + offline judge-like container + schema validator
+```
 
 ## Data
 
