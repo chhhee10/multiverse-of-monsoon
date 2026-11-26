@@ -1,6 +1,7 @@
 # raw and intermediate climate data never goes in the repo (repo scan + "no archives" rule)
 data/
 runs/
+*.log
 *.nc
 *.nc4
 *.zarr
