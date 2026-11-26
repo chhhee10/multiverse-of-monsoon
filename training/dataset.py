@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data"
+DATA = Path(os.environ.get("MONSOON_DATA", ROOT / "data"))      # Modal mounts the data volume elsewhere
 CHANNELS = ("t2m", "tp", "u10", "v10", "msl", "tcwv")
 
 
