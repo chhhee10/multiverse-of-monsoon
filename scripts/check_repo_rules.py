@@ -14,6 +14,9 @@ What it guards against:
   4. Weather archives sneaking in: data files, big arrays, or a dashboard JSON that grows past a few demo windows.
   5. Repo size (2 GB limit incl. LFS) and files GitHub would reject without LFS.
   6. Python in dashboard/ (the dashboard must be a separate JS/TS app).
+  7. Missing deliverables: weights, training code, dashboard app, README train/run docs, extra requirements.
+
+Runtime rules (offline, read-only repo, 5 s, zero shock, ...) are checked by scripts/check_server.py.
 """
 from __future__ import annotations
 
@@ -257,6 +260,40 @@ def check_size(root: Path) -> None:
     report(status, "repo size incl. LFS < 2 GB", f"{total / 1e6:.1f} MB")
 
 
+# ---- 7. submission completeness (what the problem statement asks for) ---------------------------------------
+def check_deliverables(root: Path) -> None:
+    def need(ok: bool, check: str, detail: str = "") -> None:
+        report("PASS" if ok else "FAIL", check, "" if ok else detail)
+
+    need((root / "serve.py").is_file(), "serve.py at repo root", "missing")
+    readme = root / "README.md"
+    text = readme.read_text(errors="ignore") if readme.exists() else ""
+    need(bool(text), "README.md present", "missing")
+    need("TODO" not in text, "README has no TODO sections left", "README still contains TODO")
+    need(re.search(r"(?i)^#+\s*train", text, re.M) is not None, "README explains how to train", "no 'Train' heading")
+    need("serve.py --port" in text, "README explains how to run the server", "no 'python serve.py --port' command")
+
+    weights = [p for p in files(root) if p.suffix in {".pt", ".pth", ".onnx", ".safetensors", ".ckpt"} and
+               p.stat().st_size > 1024]
+    need(bool(weights), "model weights committed", "no .pt/.pth/.onnx/.safetensors/.ckpt file > 1 KB")
+    # Pattern built in pieces so this file does not match it (the organisers' scanner would count it as training code).
+    train_re = re.compile(r"\.back" + r"ward\(|optimizer\.st" + r"ep")
+    train_code = [p for p in files(root) if p.suffix == ".py" and p.relative_to(root).parts[0] != "scripts"
+                  and train_re.search(p.read_text(errors="ignore"))]
+    need(bool(train_code), "real training code (a backward pass and optimizer step)", "none found")
+    dash = root / "dashboard"
+    need((dash / "package.json").is_file(), "dashboard app present (dashboard/package.json)", "missing")
+
+    req = root / "requirements.txt"
+    if req.exists():
+        pkgs = {re.split(r"[<>=!~\[ ;]", ln.strip())[0].lower().replace("-", "_")
+                for ln in req.read_text().splitlines() if ln.strip() and not ln.startswith(("#", "-"))}
+        alias = {"scikit_learn": "sklearn"}
+        extra = sorted(p for p in pkgs if alias.get(p, p) not in ALLOWED_THIRD_PARTY)
+        need(not extra, "requirements.txt only lists libraries in the judge's image",
+             f"{extra} are not installed by the judge; vendor them in the repo or drop them")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--head", action="store_true", help="check HEAD (what the judge clones) instead of the working tree")
@@ -267,6 +304,7 @@ def main() -> int:
         check_inference(root)
         check_archives(root)
         check_size(root)
+        check_deliverables(root)
     finally:
         shutil.rmtree(root, ignore_errors=True)
     width = max(len(c) for _, c, _ in results)
