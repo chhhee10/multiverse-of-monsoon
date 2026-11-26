@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import itertools
 import json
+from pathlib import Path
 
 import numpy as np
 from monsoon_r1 import scoring as S
@@ -39,7 +40,7 @@ def points(eng, cache, arch, clim, cfg):
         cl = clim[[doy_index(arch.dates[t + k]) for k in LEADS]]
         ss.append(float(np.nanmean(S.skill_vs_best_ref(p, tr, per, cl)["ss"])))
         cs.append(S.csi_skill(S.csi(p[:, 1], tr[:, 1]), S.csi(per[:, 1], tr[:, 1]), S.csi(cl[:, 1], tr[:, 1])))
-    return S.forecast_points(ss, cs)
+    return {**S.forecast_points(ss, cs), "ss_list": ss, "cs_list": cs}
 
 
 def margin(r) -> float:
@@ -54,6 +55,7 @@ def main():
     ap.add_argument("--years", default="2021,2022")
     ap.add_argument("--stride", type=int, default=2)
     ap.add_argument("--write", type=int, default=1)
+    ap.add_argument("--dump", default=None, help="write per-window skills of the chosen setting to this JSON")
     a = ap.parse_args()
     eng = Engine.load(model_path=a.model.split(",") if a.model else None)
     arch = load_all(); clim = climatology_2005_2021()
@@ -80,6 +82,8 @@ def main():
     m, cfg, r = best
     print(f"best: {cfg} ss={r['mean_ss']:.4f} csi_skill={r['mean_csi_skill']:.4f} rmse_pts={r['rmse_pts']:.2f} "
           f"csi_pts={r['csi_pts']:.2f} total={r['points']:.2f} margin={m:.3f}x")
+    if a.dump:
+        Path(a.dump).write_text(json.dumps({"cfg": cfg, "ss": r["ss_list"], "cs": r["cs_list"]}))
     if a.write:
         (ASSETS / "post.json").write_text(json.dumps({"heavy_rain": cfg} if cfg else {}, indent=1))
         print("wrote", ASSETS / "post.json")

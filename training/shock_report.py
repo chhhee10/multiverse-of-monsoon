@@ -41,10 +41,16 @@ def main():
     ap.add_argument("--every", type=int, default=15)
     ap.add_argument("--verbose", type=int, default=1)
     ap.add_argument("--no-post", action="store_true", help="disable the heavy-rain flag (assets/post.json)")
+    ap.add_argument("--post", default=None, help="heavy-rain config JSON to use instead of assets/post.json")
+    ap.add_argument("--dump", default=None, help="write per-window causality points to this JSON")
     a = ap.parse_args()
     eng = Engine.load(model_path=a.model.split(",") if a.model else None)
     if a.no_post:
         eng.post = {}
+    elif a.post:
+        import json
+        cfg = json.loads(open(a.post).read()).get("cfg")
+        eng.post = {"heavy_rain": cfg} if cfg else {}
     arch = load_all()
     std = np.array(stats()["std"], "f4")
     ok = _valid_starts(arch)
@@ -67,6 +73,9 @@ def main():
                         print(f"{arch.dates[t]} {name:13s} FAIL {chk:10s} {diagnose(base, shock, box, std)}")
         pts.append(S.causality_points(res, null_ok))
     pts = np.array(pts)
+    if a.dump:
+        import json
+        open(a.dump, "w").write(json.dumps({"pts": pts.tolist()}))
     print(f"\n{len(ts)} windows: expected causality {pts.mean():.2f}/15  min {pts.min():.2f}  "
           f"full marks in {np.mean(pts >= 15 - 1e-6) * 100:.0f}% of windows")
     print("failures by check:", fails)
