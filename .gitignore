@@ -1,0 +1,19 @@
+# raw and intermediate climate data never goes in the repo (repo scan + "no archives" rule)
+data/
+runs/
+*.nc
+*.nc4
+*.zarr
+*.grib
+*.grib2
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# dashboard build
+node_modules/
+dashboard/dist/
+
+.DS_Store

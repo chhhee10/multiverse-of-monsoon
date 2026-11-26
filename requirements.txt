@@ -1,0 +1,5 @@
+# Server: everything here is already in the judge's image (torch CPU, numpy, fastapi, uvicorn).
+numpy
+torch
+fastapi
+uvicorn

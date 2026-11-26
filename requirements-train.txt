@@ -1,0 +1,8 @@
+# Training and data preparation (not needed by the server)
+-r requirements.txt
+xarray
+netCDF4
+scipy
+requests
+modal
+monsoon-r1-kit @ git+https://github.com/OfficialAbhinavSingh/yug-monsoon-kit@689c8798bbff7f318a1e74878a6985abc646080a
