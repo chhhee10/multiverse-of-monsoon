@@ -173,13 +173,14 @@ def main():
     ap.add_argument("--model", default="persistence")
     ap.add_argument("--year", type=int, default=2021)
     ap.add_argument("--no-weekly", action="store_true")
+    ap.add_argument("--weights", default=None, help="checkpoint(s), comma-separated = ensemble")
     a = ap.parse_args()
     arch = load_all(); clim = climatology_2005_2021()
     if a.model.startswith("http"):
         sim = http_model(a.model)
     elif a.model == "engine":
         from monsoon.engine import Engine
-        sim = Engine.load().simulate
+        sim = Engine.load(model_path=a.weights.split(",") if a.weights else None).simulate
     else:
         sim = make_baseline(a.model, clim)
     res = grade(sim, arch, a.year, clim, weekly=not a.no_weekly)

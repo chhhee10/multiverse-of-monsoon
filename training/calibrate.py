@@ -55,7 +55,7 @@ def main():
     ap.add_argument("--stride", type=int, default=2)
     ap.add_argument("--write", type=int, default=1)
     a = ap.parse_args()
-    eng = Engine.load(model_path=a.model)
+    eng = Engine.load(model_path=a.model.split(",") if a.model else None)
     arch = load_all(); clim = climatology_2005_2021()
     ts = windows(arch, [int(y) for y in a.years.split(",")], a.stride)
     cache = {int(t): eng.rollout_raw(arch.data[t - 3:t], doy_sincos(arch.dates[t - 1]), 8) for t in ts}

@@ -23,20 +23,48 @@ OUT_LO = np.array([233.5, 0.0, -60.0, -60.0, 85000.0, 0.0], "f4")
 OUT_HI = np.array([333.0, 1000.0, 60.0, 60.0, 110000.0, 120.0], "f4")
 
 
+class Ensemble(torch.nn.Module):
+    """Several independently trained twins stepped together: every day their predictions are averaged and the
+    average is fed back, so the rollout stays one deterministic trajectory (no sampling)."""
+
+    def __init__(self, nets: list[TwinNet]):
+        super().__init__()
+        self.nets = torch.nn.ModuleList(nets)
+        self.config = nets[0].config
+
+    def forward(self, x):
+        outs = [n(x) for n in self.nets]
+        return torch.stack([o[0] for o in outs]).mean(0), torch.stack([o[1] for o in outs]).mean(0)
+
+
+def _load_net(path: Path) -> TwinNet:
+    ck = torch.load(path, map_location="cpu", weights_only=True)
+    net = TwinNet(**ck["config"])
+    net.load_state_dict(ck["state_dict"])
+    return net.eval()
+
+
 class Engine:
-    def __init__(self, net: TwinNet, norm: Normalizer, clim: np.ndarray, static: np.ndarray, post: dict | None = None):
+    def __init__(self, net: torch.nn.Module, norm: Normalizer, clim: np.ndarray, static: np.ndarray,
+                 post: dict | None = None):
         self.net = net.eval()
         self.norm = norm
         self.clim_z = norm.fwd(torch.as_tensor(clim))                 # [366,6,H,W] model space
         self.static_f = static_features(static)
         self.post = post or {}
-        self.name = f"twinnet-d{net.config['dim']}x{net.config['depth']}"
+        n = len(net.nets) if isinstance(net, Ensemble) else 1
+        self.name = f"twinnet-d{net.config['dim']}x{net.config['depth']}" + (f"-ens{n}" if n > 1 else "")
 
     @classmethod
-    def load(cls, assets: Path = ASSETS, model_path: Path | None = None) -> "Engine":
-        ck = torch.load(model_path or assets / "model.pt", map_location="cpu", weights_only=True)
-        net = TwinNet(**ck["config"])
-        net.load_state_dict(ck["state_dict"])
+    def load(cls, assets: Path = ASSETS, model_path=None) -> "Engine":
+        """model_path: one checkpoint, a list of checkpoints (ensemble), or None for assets/ (an ensemble when
+        assets/ensemble.json lists several checkpoints, else assets/model.pt)."""
+        if model_path is None:
+            ens = assets / "ensemble.json"
+            model_path = [assets / p for p in json.loads(ens.read_text())] if ens.exists() else assets / "model.pt"
+        paths = model_path if isinstance(model_path, (list, tuple)) else [model_path]
+        nets = [_load_net(Path(p)) for p in paths]
+        net = nets[0] if len(nets) == 1 else Ensemble(nets)
         norm = Normalizer.from_dict(json.loads((assets / "norm.json").read_text()))
         clim = np.load(assets / "climatology.npz")["clim"].astype("f4")
         static = np.load(assets / "static.npz")["static"].astype("f4")
